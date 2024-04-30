@@ -197,11 +197,6 @@ typedef struct _OBJECT_ATTRIBUTES {
 #define FILE_OPEN 0x00000001UL
 #endif
 
-#define KEYEDEVENT_WAIT 0x00000001UL
-#define KEYEDEVENT_WAKE 0x00000002UL
-#define KEYEDEVENT_ALL_ACCESS \
-  (STANDARD_RIGHTS_REQUIRED | KEYEDEVENT_WAIT | KEYEDEVENT_WAKE)
-
 #define NT_NTDLL_IMPORT_LIST(X)           \
   X(NTSTATUS,                             \
     NTAPI,                                \
@@ -227,14 +222,6 @@ typedef struct _OBJECT_ATTRIBUTES {
                                           \
   X(NTSTATUS,                             \
     NTAPI,                                \
-    NtCreateKeyedEvent,                   \
-    (PHANDLE KeyedEventHandle,            \
-     ACCESS_MASK DesiredAccess,           \
-     POBJECT_ATTRIBUTES ObjectAttributes, \
-     ULONG Flags))                        \
-                                          \
-  X(NTSTATUS,                             \
-    NTAPI,                                \
     NtDeviceIoControlFile,                \
     (HANDLE FileHandle,                   \
      HANDLE Event,                        \
@@ -246,22 +233,6 @@ typedef struct _OBJECT_ATTRIBUTES {
      ULONG InputBufferLength,             \
      PVOID OutputBuffer,                  \
      ULONG OutputBufferLength))           \
-                                          \
-  X(NTSTATUS,                             \
-    NTAPI,                                \
-    NtReleaseKeyedEvent,                  \
-    (HANDLE KeyedEventHandle,             \
-     PVOID KeyValue,                      \
-     BOOLEAN Alertable,                   \
-     PLARGE_INTEGER Timeout))             \
-                                          \
-  X(NTSTATUS,                             \
-    NTAPI,                                \
-    NtWaitForKeyedEvent,                  \
-    (HANDLE KeyedEventHandle,             \
-     PVOID KeyValue,                      \
-     BOOLEAN Alertable,                   \
-     PLARGE_INTEGER Timeout))             \
                                           \
   X(ULONG, WINAPI, RtlNtStatusToDosError, (NTSTATUS Status))
 
@@ -482,8 +453,6 @@ WEPOLL_INTERNAL ts_tree_node_t* port_state_to_handle_tree_node(
 typedef struct reflock {
   volatile long state; /* 32-bit Interlocked APIs operate on `long` values. */
 } reflock_t;
-
-WEPOLL_INTERNAL int reflock_global_init(void);
 
 WEPOLL_INTERNAL void reflock_init(reflock_t* reflock);
 WEPOLL_INTERNAL void reflock_ref(reflock_t* reflock);
@@ -848,7 +817,7 @@ static BOOL CALLBACK init__once_callback(INIT_ONCE* once,
 
   /* N.b. that initialization order matters here. */
   if (ws_global_init() < 0 || nt_global_init() < 0 ||
-      reflock_global_init() < 0 || epoll_global_init() < 0)
+      epoll_global_init() < 0)
     return FALSE;
 
   init__done = true;
@@ -1523,31 +1492,17 @@ bool queue_is_enqueued(const queue_node_t* node) {
 #define REFLOCK__DESTROY_MASK ((long) 0xf0000000UL)
 #define REFLOCK__POISON       ((long) 0x300dead0UL)
 
-static HANDLE reflock__keyed_event = NULL;
-
-int reflock_global_init(void) {
-  NTSTATUS status = NtCreateKeyedEvent(
-      &reflock__keyed_event, KEYEDEVENT_ALL_ACCESS, NULL, 0);
-  if (status != STATUS_SUCCESS)
-    return_set_error(-1, RtlNtStatusToDosError(status));
-  return 0;
-}
-
 void reflock_init(reflock_t* reflock) {
   reflock->state = 0;
 }
 
 static void reflock__signal_event(void* address) {
-  NTSTATUS status =
-      NtReleaseKeyedEvent(reflock__keyed_event, address, FALSE, NULL);
-  if (status != STATUS_SUCCESS)
-    abort();
+  WakeByAddressSingle(address);
 }
 
 static void reflock__await_event(void* address) {
-  NTSTATUS status =
-      NtWaitForKeyedEvent(reflock__keyed_event, address, FALSE, NULL);
-  if (status != STATUS_SUCCESS)
+  BOOL status = WaitOnAddress(address, address, sizeof(void*), INFINITE);
+  if (!status)
     abort();
 }
 
