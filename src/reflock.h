@@ -25,8 +25,6 @@ typedef struct reflock {
   volatile long state; /* 32-bit Interlocked APIs operate on `long` values. */
 } reflock_t;
 
-WEPOLL_INTERNAL int reflock_global_init(void);
-
 WEPOLL_INTERNAL void reflock_init(reflock_t* reflock);
 WEPOLL_INTERNAL void reflock_ref(reflock_t* reflock);
 WEPOLL_INTERNAL void reflock_unref(reflock_t* reflock);

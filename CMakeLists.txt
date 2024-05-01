@@ -4,6 +4,7 @@ project(wepoll)
 include(CMakeParseArguments)
 
 link_libraries(ws2_32)
+link_libraries(synchronization)
 
 if(MSVC)
   add_compile_options(/Wall /WX /wd4127 /wd4201 /wd4242 /wd4710 /wd4711 /wd4820)

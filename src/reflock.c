@@ -15,31 +15,17 @@
 #define REFLOCK__POISON       ((long) 0x300dead0UL)
 /* clang-format on */
 
-static HANDLE reflock__keyed_event = NULL;
-
-int reflock_global_init(void) {
-  NTSTATUS status = NtCreateKeyedEvent(
-      &reflock__keyed_event, KEYEDEVENT_ALL_ACCESS, NULL, 0);
-  if (status != STATUS_SUCCESS)
-    return_set_error(-1, RtlNtStatusToDosError(status));
-  return 0;
-}
-
 void reflock_init(reflock_t* reflock) {
   reflock->state = 0;
 }
 
 static void reflock__signal_event(void* address) {
-  NTSTATUS status =
-      NtReleaseKeyedEvent(reflock__keyed_event, address, FALSE, NULL);
-  if (status != STATUS_SUCCESS)
-    abort();
+  WakeByAddressSingle(address);
 }
 
 static void reflock__await_event(void* address) {
-  NTSTATUS status =
-      NtWaitForKeyedEvent(reflock__keyed_event, address, FALSE, NULL);
-  if (status != STATUS_SUCCESS)
+  BOOL status = WaitOnAddress(address, address, sizeof(void*), INFINITE);
+  if (status != TRUE)
     abort();
 }
 
