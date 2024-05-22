@@ -15,24 +15,31 @@
 #define REFLOCK__POISON       ((long) 0x300dead0UL)
 /* clang-format on */
 
-static void* reflock__wait_object = NULL;
+/* Prevents the possibility of exiting early due to spurious wakeups. */
+static void* reflock__signal_object = NULL;
 
 void reflock_init(reflock_t* reflock) {
   reflock->state = 0;
 }
 
 static void reflock__signal_event(void* address) {
-  reflock__wait_object = NULL;
+  reflock__signal_object = address;
   WakeByAddressSingle(address);
 }
 
 static void reflock__await_event(void* address) {
-  reflock__wait_object = address;
+  BOOL status = TRUE;
+
+  if (reflock__signal_object == address) {
+    reflock__signal_object = NULL;
+  }
+
   do {
-    BOOL status = WaitOnAddress(address, reflock__wait_object, sizeof(void*), INFINITE);
-    if (status != TRUE)
-      abort();
-  } while (reflock__wait_object == address);
+    status = WaitOnAddress(address, address, sizeof(void*), INFINITE);
+  } while (reflock__signal_object != address);
+
+  if (status != TRUE)
+    abort();
 }
 
 void reflock_ref(reflock_t* reflock) {
