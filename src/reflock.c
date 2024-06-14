@@ -11,32 +11,31 @@
 #define REFLOCK__REF          ((long) 0x00000001UL)
 #define REFLOCK__REF_MASK     ((long) 0x0fffffffUL)
 #define REFLOCK__DESTROY      ((long) 0x10000000UL)
-#define REFLOCK__DESTROY_MASK ((long) 0xf0000000UL)
+#define REFLOCK__DESTROY_MASK ((long) 0x10000000UL)
+#define REFLOCK__SIGNAL       ((long) 0x20000000UL)
+#define REFLOCK__SIGNAL_MASK  ((long) 0x20000000UL)
 #define REFLOCK__POISON       ((long) 0x300dead0UL)
 /* clang-format on */
-
-/* Prevents the possibility of exiting early due to spurious wakeups. */
-static void* reflock__signal_object = NULL;
 
 void reflock_init(reflock_t* reflock) {
   reflock->state = 0;
 }
 
-static void reflock__signal_event(void* address) {
-  reflock__signal_object = address;
-  WakeByAddressSingle(address);
+static void reflock__signal_event(reflock_t* reflock) {
+  long state = InterlockedAdd(&reflock->state, REFLOCK__SIGNAL);
+  unused_var(state);
+
+  WakeByAddressSingle(reflock);
 }
 
-static void reflock__await_event(void* address) {
+static void reflock__await_event(reflock_t* reflock) {
   BOOL status = TRUE;
-
-  if (reflock__signal_object == address) {
-    reflock__signal_object = NULL;
-  }
-
   do {
-    status = WaitOnAddress(address, address, sizeof(void*), INFINITE);
-  } while (reflock__signal_object != address);
+    status = WaitOnAddress(reflock, reflock, sizeof(reflock_t*), INFINITE);
+  } while ((reflock->state & REFLOCK__SIGNAL_MASK) == 0);
+
+  long state = InterlockedAdd(&reflock->state, -REFLOCK__SIGNAL);
+  unused_var(state);
 
   if (status != TRUE)
     abort();
